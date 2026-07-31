@@ -1,9 +1,10 @@
 // screens/JobDetailsScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  Alert, Linking, TouchableOpacity, Image,
+  Alert, Linking, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation';
@@ -15,6 +16,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useJobs } from '../context/JobsContext';
 import { useUser } from '../context/UserContext';
 import { MediaItem } from '../components/MediaPicker';
+import { Job } from '../types';
 import Spacing from '../constants/spacing';
 import { Fonts } from '../constants/fonts';
 
@@ -36,13 +38,41 @@ function getCategoryIcon(category: string): keyof typeof Ionicons.glyphMap {
 export default function JobDetailsScreen({ route, navigation }: Props) {
   const { jobId } = route.params;
   const { colors } = useTheme();
-  const { jobs } = useJobs();
+  const { jobs, fetchJobById } = useJobs();
   const { profile, seekerProfile, employerProfile, appliedJobs, applyForJob } = useUser();
   const [employerModalVisible, setEmployerModalVisible] = useState(false);
   const [applying, setApplying] = useState(false);
-  const job = jobs.find((j) => j.id === jobId);
+  const [fallbackJob, setFallbackJob] = useState<Job | null>(null);
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  const job = jobs.find((j) => j.id === jobId) ?? fallbackJob;
+
+  // The feed only holds whatever's been paged in so far — if this job
+  // isn't there (deep link, push notification, or it just hasn't been
+  // scrolled to yet this session), fetch it directly rather than showing
+  // a false "not found".
+  useEffect(() => {
+    if (job || fallbackLoading) return;
+    setFallbackLoading(true);
+    fetchJobById(jobId).then(({ data }) => {
+      setFallbackJob(data);
+      setFallbackLoading(false);
+    });
+    // Only re-run if the target job or the paginated list changes — not on
+    // every fallbackLoading flip (that's read, not a dependency trigger).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId, job]);
 
   if (!job) {
+    if (fallbackLoading) {
+      return (
+        <ScreenContainer>
+          <View style={styles.notFound}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        </ScreenContainer>
+      );
+    }
+
     return (
       <ScreenContainer>
         <View style={styles.notFound}>
@@ -218,6 +248,11 @@ export default function JobDetailsScreen({ route, navigation }: Props) {
               <Text style={[styles.infoLabel, { color: colors.mutedText, fontFamily: Fonts.heading }]}>Posted</Text>
               <Text style={[styles.infoValue, { color: colors.text, fontFamily: Fonts.bodyBold }]}>{job.timePosted}</Text>
             </View>
+            <View style={[styles.infoBox, { marginLeft: Spacing.sm, backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="people-outline" size={18} color={colors.primary} />
+              <Text style={[styles.infoLabel, { color: colors.mutedText, fontFamily: Fonts.heading }]}>Positions</Text>
+              <Text style={[styles.infoValue, { color: colors.text, fontFamily: Fonts.bodyBold }]}>{job.positions ?? 1}</Text>
+            </View>
           </View>
 
           <View style={styles.section}>
@@ -234,7 +269,13 @@ export default function JobDetailsScreen({ route, navigation }: Props) {
           >
             <View style={styles.employerAvatarWrap}>
               {job.employerAvatarUri ? (
-                <Image source={{ uri: job.employerAvatarUri }} style={[styles.employerAvatar, { borderColor: colors.primary }]} />
+                <Image
+                  source={{ uri: job.employerAvatarUri }}
+                  style={[styles.employerAvatar, { borderColor: colors.primary }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
+                />
               ) : (
                 <View style={[styles.employerAvatarFallback, { backgroundColor: colors.primary }]}>
                   <Text style={[styles.employerAvatarText, { color: colors.white, fontFamily: Fonts.heading }]}>

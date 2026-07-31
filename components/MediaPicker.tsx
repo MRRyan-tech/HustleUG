@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { Fonts } from '../constants/fonts';
 import Spacing from '../constants/spacing';
+import { CaptureMode } from './CameraCaptureModal';
 
 export interface MediaItem {
   uri: string;
@@ -21,15 +22,23 @@ interface MediaPickerProps {
   onAdd: (items: MediaItem[]) => void;
   photoCount: number;
   videoCount: number;
+  // "Take a Photo" and "Record a Video" both hand off to the parent's
+  // CameraCaptureModal rather than opening a camera nested inside this
+  // sheet's own <Modal> — nested <Modal> presentation is what caused the
+  // blank/black camera preview on iOS.
+  onOpenCamera: (mode: CaptureMode) => void;
 }
 
 export default function MediaPickerModal({
-  visible, onClose, onAdd, photoCount, videoCount,
+  visible, onClose, onAdd, photoCount, videoCount, onOpenCamera,
 }: MediaPickerProps) {
   const { colors } = useTheme();
 
   const maxPhotos = 3;
-  const maxVideos = 2;
+  // One video per job — matches both the roadmap's own paid-tier plan
+  // ("3 photos + 1×30s video per post") and the Bunny Stream pipeline,
+  // which stores a single video_provider_id per job row.
+  const maxVideos = 1;
   const photosLeft = maxPhotos - photoCount;
   const videosLeft = maxVideos - videoCount;
 
@@ -40,36 +49,30 @@ export default function MediaPickerModal({
       return;
     }
 
+    // Photos only from the gallery. Videos picked from the gallery on SDK 54+
+    // are returned untouched (Passthrough mode) regardless of any quality
+    // setting here, so there's no way to bound their size — video has to be
+    // recorded fresh through the camera, where we can actually cap duration.
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'] as ImagePicker.MediaType[],
+      mediaTypes: ['images'] as ImagePicker.MediaType[],
       allowsMultipleSelection: true,
       quality: 0.7,
-      selectionLimit: photosLeft + videosLeft,
+      selectionLimit: photosLeft,
     });
 
     if (!result.canceled) {
       const items: MediaItem[] = [];
       let pCount = 0;
-      let vCount = 0;
 
       for (const asset of result.assets) {
-        const isVideo = asset.type === 'video' ||
-          asset.uri.endsWith('.mp4') || asset.uri.endsWith('.mov');
-
-        if (isVideo && vCount < videosLeft) {
-          items.push({ uri: asset.uri, type: 'video' });
-          vCount++;
-        } else if (!isVideo && pCount < photosLeft) {
+        if (pCount < photosLeft) {
           items.push({ uri: asset.uri, type: 'photo' });
           pCount++;
         }
       }
 
       if (items.length < result.assets.length) {
-        Alert.alert(
-          'Some media skipped',
-          `Max ${maxPhotos} photos and ${maxVideos} videos allowed.`
-        );
+        Alert.alert('Some photos skipped', `Max ${maxPhotos} photos allowed.`);
       }
 
       onAdd(items);
@@ -77,33 +80,12 @@ export default function MediaPickerModal({
     }
   };
 
-  const openCamera = async (mode: 'photo' | 'video') => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Please allow camera access.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: mode === 'photo'
-        ? 'images' as ImagePicker.MediaType
-        : 'videos' as ImagePicker.MediaType,
-      quality: 0.7,
-      videoMaxDuration: 60,
-    });
-
-    if (!result.canceled) {
-      onAdd([{ uri: result.assets[0].uri, type: mode }]);
-      onClose();
-    }
-  };
-
   const options = [
     {
       icon: 'images-outline' as const,
-      label: 'Choose from Gallery',
-      sublabel: `${photosLeft} photo${photosLeft !== 1 ? 's' : ''} + ${videosLeft} video${videosLeft !== 1 ? 's' : ''} remaining`,
-      disabled: photosLeft === 0 && videosLeft === 0,
+      label: 'Choose Photos from Gallery',
+      sublabel: `${photosLeft} photo${photosLeft !== 1 ? 's' : ''} remaining`,
+      disabled: photosLeft === 0,
       onPress: openGallery,
     },
     {
@@ -111,14 +93,20 @@ export default function MediaPickerModal({
       label: 'Take a Photo',
       sublabel: `${photosLeft} photo slot${photosLeft !== 1 ? 's' : ''} remaining`,
       disabled: photosLeft === 0,
-      onPress: () => openCamera('photo'),
+      onPress: () => {
+        onClose();
+        onOpenCamera('photo');
+      },
     },
     {
       icon: 'videocam-outline' as const,
       label: 'Record a Video',
-      sublabel: `${videosLeft} video slot${videosLeft !== 1 ? 's' : ''} remaining`,
+      sublabel: `${videosLeft} slot${videosLeft !== 1 ? 's' : ''} remaining · max 30 seconds`,
       disabled: videosLeft === 0,
-      onPress: () => openCamera('video'),
+      onPress: () => {
+        onClose();
+        onOpenCamera('video');
+      },
     },
   ];
 
@@ -131,7 +119,7 @@ export default function MediaPickerModal({
             Add Media
           </Text>
           <Text style={[styles.subtitle, { color: colors.mutedText, fontFamily: Fonts.body }]}>
-            Up to 3 photos and 2 videos
+            Up to 3 photos and 1 video (recorded in-app, max 30s)
           </Text>
 
           {options.map((opt) => (

@@ -2,8 +2,9 @@
 import React, { useState } from 'react';
 import {
   View, Modal, TouchableOpacity, StyleSheet,
-  Dimensions, Image, FlatList,
+  Dimensions, FlatList,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { MediaItem } from './MediaPicker';
@@ -43,7 +44,8 @@ export default function MediaViewer({ visible, items, startIndex, onClose }: Med
         <Image
           source={{ uri: item.uri }}
           style={styles.fullImage}
-          resizeMode="contain"
+          contentFit="contain"
+          cachePolicy="memory-disk"
         />
       ) : (
         <VideoSlide uri={item.uri} />

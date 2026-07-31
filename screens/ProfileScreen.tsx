@@ -1,21 +1,28 @@
 // screens/ProfileScreen.tsx
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Modal, Switch, Image, Alert, ActivityIndicator,
+  Modal, Switch, Alert, ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation';
 import AppButton from '../components/AppButton';
 import InputField from '../components/InputField';
 import PhoneInput from '../components/PhoneInput';
 import { useTheme } from '../context/ThemeContext';
 import { useUser } from '../context/UserContext';
 import { useJobs } from '../context/JobsContext';
+import { Job } from '../types';
 import { ThemeMode } from '../constants/colors';
 import Spacing from '../constants/spacing';
 import { Fonts } from '../constants/fonts';
 import { supabase } from '../src/lib/supabase';
+
+type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SKILLS_OPTIONS = [
@@ -63,7 +70,7 @@ const chipS = StyleSheet.create({
 // ─── Edit Profile Modal ───────────────────────────────────────────────────────
 function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { colors } = useTheme();
-  const { profile, seekerProfile, refreshProfile } = useUser();
+  const { profile, seekerProfile, employerProfile, activeRole, refreshProfile } = useUser();
   const [saving, setSaving] = useState(false);
 
   // Basic info
@@ -75,14 +82,23 @@ function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () 
   const [skills, setSkills]       = useState<string[]>((seekerProfile as any)?.skills ?? []);
   const [experience, setExperience] = useState((seekerProfile as any)?.experience_level ?? '');
   const [district, setDistrict]   = useState(profile?.district ?? '');
+  // Employer-specific
+  const [companyName, setCompanyName] = useState(employerProfile?.company_name ?? '');
 
-  const isSeeker = profile?.role === 'seeker';
+  // Use the currently active hat, not profile.role — a dual-hat account's
+  // profile.role can be stale relative to which hat they're using right now.
+  const isSeeker = activeRole === 'seeker';
+  const isEmployer = activeRole === 'employer' && employerProfile !== null;
 
   const toggleSkill = (s: string) =>
     setSkills((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]);
 
   const handleSave = async () => {
     if (!fullName.trim()) { Alert.alert('Required', 'Name cannot be empty.'); return; }
+    if (isEmployer && !companyName.trim()) {
+      Alert.alert('Required', 'Company/business name cannot be empty.');
+      return;
+    }
     setSaving(true);
     try {
       // Update base profile
@@ -100,6 +116,13 @@ function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () 
           skills,
           experience_level: experience || null,
         }).eq('id', (seekerProfile as any).id);
+      }
+
+      // Update employer sub-profile if applicable
+      if (isEmployer && employerProfile) {
+        await supabase.from('employer_profiles').update({
+          company_name: companyName.trim(),
+        }).eq('id', employerProfile.id);
       }
 
       await refreshProfile();
@@ -142,7 +165,13 @@ function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () 
           <View style={editS.avatarSection}>
             <View style={[editS.avatarRing, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}>
               {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={editS.avatar} />
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={editS.avatar}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
+                />
               ) : (
                 <Text style={[editS.avatarInitial, { color: colors.primary, fontFamily: Fonts.heading }]}>
                   {initial}
@@ -174,6 +203,22 @@ function EditProfileModal({ visible, onClose }: { visible: boolean; onClose: () 
               onChangeText={setPhone}
             />
           </View>
+
+          {/* Section: Employer Profile — only shown in employer mode */}
+          {isEmployer && (
+            <View style={[editS.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Text style={[editS.sectionTitle, { color: colors.text, fontFamily: Fonts.heading }]}>
+                Employer Profile
+              </Text>
+
+              <InputField
+                label={employerProfile?.employer_type === 'individual' ? 'Display Name' : 'Company / Business Name'}
+                value={companyName}
+                onChangeText={setCompanyName}
+                placeholder="e.g. Nakato Enterprises"
+              />
+            </View>
+          )}
 
           {/* Section: Seeker Profile — only shown in seeker mode */}
           {isSeeker && (
@@ -552,28 +597,121 @@ function RoleSwitcherModal({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
-  const { profile, employerProfile, seekerProfile, activeRole, canSwitchRole, switchRole, signOut } = useUser();
-  const { jobs, cancelJob } = useJobs();
+  const navigation = useNavigation<NavProp>();
+  const insets = useSafeAreaInsets();
+  const { profile, employerProfile, seekerProfile, activeRole, canSwitchRole, switchRole, signOut, refreshProfile } = useUser();
+  const { cancelJob, refreshJobs, fetchJobsByEmployer } = useJobs();
 
   const [editVisible, setEdit]         = useState(false);
   const [notifVisible, setNotif]       = useState(false);
   const [themeVisible, setTheme]       = useState(false);
   const [switcherVisible, setSwitcher] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [myJobs, setMyJobs] = useState<Job[]>([]);
+  const [upgrading, setUpgrading] = useState(false);
+  const [awaitingPaymentId, setAwaitingPaymentId] = useState<string | null>(null);
+
+  const isEmployer = activeRole === 'employer';
+
+  // Polls the payments row this employer just created rather than
+  // waiting passively -- momo-webhook and momo-reconcile-and-expire
+  // both update it server-side once MTN reports back, but the app has
+  // no other way to know that happened short of the employer manually
+  // pulling to refresh. Gives up after ~2 minutes; if MTN is just slow,
+  // the reconciliation sweep (every 5 min) still resolves it correctly
+  // in the background even after this stops watching.
+  const pollPaymentStatus = useCallback(async (paymentId: string) => {
+    const maxAttempts = 24; // 24 * 5s = 2 minutes
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const { data: payment } = await supabase
+        .from('payments')
+        .select('status, failure_reason')
+        .eq('id', paymentId)
+        .single();
+
+      if (!payment || payment.status === 'pending') continue;
+
+      setAwaitingPaymentId(null);
+
+      if (payment.status === 'successful') {
+        await refreshProfile();
+        Alert.alert('Upgrade complete', "You're now on HustleUG Pro for the next 7 days.");
+      } else {
+        Alert.alert(
+          'Payment not completed',
+          payment.failure_reason ?? 'The payment was declined or timed out. You can try again.',
+        );
+      }
+      return;
+    }
+
+    // Still pending after 2 minutes -- stop watching actively, but the
+    // payment isn't lost; the reconciliation sweep will resolve it and
+    // the employer will see the change next time they open Profile.
+    setAwaitingPaymentId(null);
+    Alert.alert(
+      'Still processing',
+      "This is taking longer than usual. If you approved the payment on your phone, it'll go through shortly — check back here in a few minutes.",
+    );
+  }, [refreshProfile]);
+
+  const handleUpgrade = useCallback(async () => {
+    setUpgrading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-momo-payment');
+
+      if (error || !data?.ok) {
+        Alert.alert('Could not start payment', data?.error ?? error?.message ?? 'Please try again.');
+        return;
+      }
+
+      setAwaitingPaymentId(data.paymentId);
+      Alert.alert('Check your phone', 'Approve the UGX 2,000 payment prompt on your MTN Mobile Money line to activate Pro.');
+      pollPaymentStatus(data.paymentId);
+    } catch (err) {
+      Alert.alert('Could not start payment', 'Please check your connection and try again.');
+    } finally {
+      setUpgrading(false);
+    }
+  }, [pollPaymentStatus]);
+
+  // "My Posted Jobs" needs to show ALL of this employer's active listings,
+  // not just whichever ones have been paged into the general public feed
+  // (see JobsContext.fetchJobsByEmployer) — so it's fetched independently
+  // rather than filtered from the shared paginated `jobs` array.
+  const loadMyJobs = useCallback(async () => {
+    if (!isEmployer || !employerProfile) {
+      setMyJobs([]);
+      return;
+    }
+    const { data } = await fetchJobsByEmployer(employerProfile.id);
+    setMyJobs(data);
+  }, [isEmployer, employerProfile, fetchJobsByEmployer]);
+
+  // Accepting an applicant on ApplicantsScreen can auto-close a job
+  // (positions_available hits 0) — refresh on focus (covers first mount
+  // too) so that's reflected here without needing a manual
+  // pull-to-refresh after navigating back.
+  useFocusEffect(
+    useCallback(() => {
+      loadMyJobs();
+    }, [loadMyJobs])
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([refreshProfile(), refreshJobs(), loadMyJobs()]);
+    setRefreshing(false);
+  }, [refreshProfile, refreshJobs, loadMyJobs]);
 
   const fullName  = profile?.full_name ?? 'My Profile';
   const phone     = profile?.phone ?? '';
   const avatarUrl = profile?.avatar_url ?? null;
   const initial   = fullName.charAt(0).toUpperCase();
-  const isEmployer = activeRole === 'employer';
   const isSeeker   = activeRole === 'seeker';
-
-  const myJobs = isEmployer && employerProfile
-    ? jobs.filter((j) =>
-        j.employerName === ((employerProfile as any).company_name ?? fullName)
-        || j.employerName === fullName
-      )
-    : [];
 
   const handleSignOut = () => {
     Alert.alert('Log Out', 'Are you sure you want to log out?', [
@@ -591,7 +729,14 @@ export default function ProfileScreen() {
           setCancellingId(jobId);
           const { error } = await cancelJob(jobId);
           setCancellingId(null);
-          if (error) Alert.alert('Error', error);
+          if (error) {
+            Alert.alert('Error', error);
+            return;
+          }
+          // cancelJob only refreshes the general paginated feed — refetch
+          // this screen's independent "My Posted Jobs" list too so the
+          // closed job actually disappears from it.
+          await loadMyJobs();
         },
       },
     ]);
@@ -618,15 +763,32 @@ export default function ProfileScreen() {
   ];
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['left', 'right']}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
 
         {/* ── Header ── */}
-        <View style={[styles.header, { backgroundColor: colors.primary }]}>
+        <View style={[styles.header, { backgroundColor: colors.primary, paddingTop: insets.top + Spacing.md }]}>
           <View style={styles.headerContent}>
             <TouchableOpacity onPress={() => setEdit(true)} style={styles.avatarWrap}>
               {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={[styles.avatar, { borderColor: colors.white }]} />
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={[styles.avatar, { borderColor: colors.white }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
+                />
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.primaryDark, borderColor: colors.white }]}>
                   <Text style={[styles.avatarInitialLarge, { color: colors.white, fontFamily: Fonts.heading }]}>{initial}</Text>
@@ -703,6 +865,47 @@ export default function ProfileScreen() {
           ))}
         </View>
 
+        {/* ── Subscription (employers only) ── */}
+        {isEmployer && employerProfile && (
+          <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {employerProfile.tier === 'paid' ? (
+              <View style={styles.subscriptionRow}>
+                <View style={[styles.hatCardIcon, { backgroundColor: colors.primaryLight }]}>
+                  <Ionicons name="star" size={20} color={colors.primary} />
+                </View>
+                <View style={styles.hatCardTexts}>
+                  <Text style={[styles.hatCardRole, { color: colors.text, fontFamily: Fonts.heading }]}>
+                    HustleUG Pro
+                  </Text>
+                  <Text style={[styles.hatCardLabel, { color: colors.mutedText, fontFamily: Fonts.body }]}>
+                    {employerProfile.tier_expires_at
+                      ? `Renews or expires ${new Date(employerProfile.tier_expires_at).toLocaleDateString()}`
+                      : 'Active'}
+                  </Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.subscriptionRow}>
+                <View style={styles.hatCardTexts}>
+                  <Text style={[styles.hatCardRole, { color: colors.text, fontFamily: Fonts.heading }]}>
+                    Upgrade to Pro
+                  </Text>
+                  <Text style={[styles.hatCardLabel, { color: colors.mutedText, fontFamily: Fonts.body }]}>
+                    UGX 2,000/week · unlimited posts · 3 photos + video
+                  </Text>
+                </View>
+                <AppButton
+                  label={awaitingPaymentId ? 'Awaiting approval…' : 'Upgrade'}
+                  onPress={handleUpgrade}
+                  loading={upgrading}
+                  disabled={upgrading || awaitingPaymentId !== null}
+                  style={styles.upgradeButton}
+                />
+              </View>
+            )}
+          </View>
+        )}
+
         {/* ── Seeker skills summary ── */}
         {isSeeker && (seekerProfile as any)?.skills?.length > 0 && (
           <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -738,15 +941,27 @@ export default function ProfileScreen() {
                   key={job.id}
                   style={[styles.postedJobRow, { borderBottomColor: colors.border, borderBottomWidth: i < myJobs.length - 1 ? 1 : 0 }]}
                 >
-                  <View style={[styles.postedJobIcon, { backgroundColor: colors.primaryLight }]}>
-                    <Ionicons name="briefcase-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.postedJobInfo}>
-                    <Text style={[styles.postedJobTitle, { color: colors.text, fontFamily: Fonts.heading }]} numberOfLines={1}>{job.title}</Text>
-                    <Text style={[styles.postedJobMeta, { color: colors.mutedText, fontFamily: Fonts.body }]}>
-                      UGX {job.pay.toLocaleString()} · {job.location}
-                    </Text>
-                  </View>
+                  <TouchableOpacity
+                    style={styles.postedJobPressable}
+                    onPress={() => navigation.navigate('Applicants', { jobId: job.id, jobTitle: job.title })}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.postedJobIcon, { backgroundColor: colors.primaryLight }]}>
+                      <Ionicons name="briefcase-outline" size={18} color={colors.primary} />
+                    </View>
+                    <View style={styles.postedJobInfo}>
+                      <Text style={[styles.postedJobTitle, { color: colors.text, fontFamily: Fonts.heading }]} numberOfLines={1}>{job.title}</Text>
+                      <Text style={[styles.postedJobMeta, { color: colors.mutedText, fontFamily: Fonts.body }]}>
+                        UGX {job.pay.toLocaleString()} · {job.location}
+                      </Text>
+                      <View style={styles.applicantsHint}>
+                        <Ionicons name="people-outline" size={11} color={colors.primary} />
+                        <Text style={[styles.applicantsHintText, { color: colors.primary, fontFamily: Fonts.heading }]}>
+                          {' '}{job.positions ?? 1} position{(job.positions ?? 1) === 1 ? '' : 's'} · View applicants
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.closeJobBtn, { borderColor: colors.danger ?? '#EF4444' }]}
                     onPress={() => handleCancelJob(job.id, job.title)}
@@ -844,6 +1059,8 @@ const styles = StyleSheet.create({
   statDivider: { width: 1.5 },
   statValue: { fontSize: 20, letterSpacing: 0.3 },
   statLabel: { fontSize: 11, textAlign: 'center' },
+  subscriptionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, padding: Spacing.md },
+  upgradeButton: { paddingHorizontal: Spacing.md, paddingVertical: 10, minHeight: 40, borderRadius: 8 },
   section: { marginHorizontal: Spacing.md, marginTop: Spacing.md, borderRadius: 12, borderWidth: 1.5, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: Spacing.md, paddingVertical: 12, borderBottomWidth: 1 },
   sectionTitle: { fontSize: 14, letterSpacing: 0.3 },
@@ -853,10 +1070,13 @@ const styles = StyleSheet.create({
   emptyJobs: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, padding: Spacing.md },
   emptyJobsText: { fontSize: 13 },
   postedJobRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingHorizontal: Spacing.md, paddingVertical: 14 },
+  postedJobPressable: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   postedJobIcon: { width: 36, height: 36, borderRadius: 9, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   postedJobInfo: { flex: 1, gap: 3 },
   postedJobTitle: { fontSize: 14 },
   postedJobMeta: { fontSize: 12 },
+  applicantsHint: { flexDirection: 'row', alignItems: 'center', marginTop: 1 },
+  applicantsHintText: { fontSize: 11 },
   closeJobBtn: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, minWidth: 56, alignItems: 'center' },
   closeJobText: { fontSize: 11, letterSpacing: 1 },
   settingsRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.md, paddingVertical: 14 },

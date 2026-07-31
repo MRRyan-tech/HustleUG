@@ -31,7 +31,17 @@
       ],
       "expo-font",
       "expo-localization",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "HustleUG needs camera access so you can take photos and record videos for your job posts.",
+          "microphonePermission": "HustleUG needs microphone access to record video with sound for your job posts.",
+          "recordAudioAndroid": true
+        }
+      ],
+      "expo-secure-store",
+      "expo-audio"
     ]
   }
 }

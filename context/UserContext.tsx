@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, Profile, SeekerProfile, EmployerProfile, Application, UserRole } from '../src/lib/supabase';
+import { playJobConfirmedSound } from '../src/lib/sounds';
 
 type AppliedStatus = 'pending' | 'accepted';
 
@@ -73,6 +74,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
+        // Important: set loading BEFORE fetchProfile resolves. Without this,
+        // there's a brief render where session is truthy but seekerProfile/
+        // employerProfile are still null (stale from before sign-in), which
+        // makes AppNavigation briefly flash the Onboarding screen.
+        setLoading(true);
         fetchProfile(session.user.id);
       } else {
         resetState();
@@ -196,6 +202,57 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await fetchApplications(seekerProfile.id);
     return { error: null };
   };
+
+  // Sound trigger, two distinct events sharing one channel: an employer
+  // hears this the instant someone applies to one of their jobs; a
+  // seeker hears it the instant their own application is marked
+  // 'hired'. Deliberately not filtered by employer_id/seeker_id in the
+  // subscription itself (applications has no employer_id column to
+  // filter on directly) -- RLS already guarantees this client only ever
+  // receives rows it's allowed to see (its own jobs' applications, or
+  // its own submitted applications), so any INSERT/UPDATE that arrives
+  // here is already correctly scoped without extra filtering.
+  useEffect(() => {
+    if (!profile) return;
+
+    const channel = supabase
+      .channel('applications-sound-triggers')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'applications' },
+        (payload) => {
+          const newRow = payload.new as { seeker_id?: string } | undefined;
+          // Skip if this is the echo of an application I just submitted
+          // myself as a seeker -- this trigger is for an employer being
+          // notified of someone else applying, not a "you applied"
+          // confirmation for the applicant.
+          if (newRow?.seeker_id && newRow.seeker_id !== seekerProfile?.id) {
+            playJobConfirmedSound();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'applications' },
+        (payload) => {
+          const newRow = payload.new as { seeker_id?: string; status?: string } | undefined;
+          const oldRow = payload.old as { status?: string } | undefined;
+          const justGotHired =
+            newRow?.status === 'hired' &&
+            oldRow?.status !== 'hired' &&
+            newRow.seeker_id === seekerProfile?.id;
+
+          if (justGotHired) {
+            playJobConfirmedSound();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile, seekerProfile]);
 
   const appliedJobs: Record<string, AppliedStatus> = {};
   applications.forEach((app) => {

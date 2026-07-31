@@ -11,6 +11,16 @@ interface JobCardProps {
   job: Job;
   onPress: (job: Job) => void;
   applied?: boolean;
+  /**
+   * When set, this card renders dimmed with a "processing" overlay instead
+   * of behaving as a normal interactive card — used for a job whose video
+   * is still uploading or encoding. A number (0–1) shows live upload
+   * progress; null means "processing" with no live percentage available
+   * (upload finished, now waiting on Bunny's server-side encoding step,
+   * which has no client-visible progress signal at all). Omit entirely
+   * for a normal card.
+   */
+  processingProgress?: number | null;
 }
 
 function getCategoryIcon(category: string): keyof typeof Ionicons.glyphMap {
@@ -27,14 +37,23 @@ function formatPay(amount: number): string {
   return `UGX ${amount.toLocaleString()}`;
 }
 
-export default function JobCard({ job, onPress, applied = false }: JobCardProps) {
+// Memoized so FlatList doesn't re-render every visible card just because
+// the parent re-rendered (e.g. typing in the search box) — only cards
+// whose job data or applied status actually changed will re-render.
+function JobCard({ job, onPress, applied = false, processingProgress }: JobCardProps) {
   const { colors } = useTheme();
+  const isProcessing = processingProgress !== undefined;
 
   return (
     <TouchableOpacity
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadowColor }]}
-      onPress={() => onPress(job)}
-      activeOpacity={0.88}
+      style={[
+        styles.card,
+        { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadowColor },
+        isProcessing && styles.cardProcessing,
+      ]}
+      onPress={() => { if (!isProcessing) onPress(job); }}
+      activeOpacity={isProcessing ? 1 : 0.88}
+      disabled={isProcessing}
     >
       {/* Media strip */}
       <View style={[styles.mediaStrip, { backgroundColor: colors.primary }]}>
@@ -91,15 +110,51 @@ export default function JobCard({ job, onPress, applied = false }: JobCardProps)
               </View>
             )}
           </View>
-          <TouchableOpacity style={[styles.viewBtn, { backgroundColor: colors.primary }]} onPress={() => onPress(job)}>
-            <Text style={[styles.viewBtnText, { color: colors.white, fontFamily: Fonts.heading }]}>View</Text>
-            <Ionicons name="arrow-forward" size={13} color={colors.white} />
-          </TouchableOpacity>
+          {!isProcessing && (
+            <TouchableOpacity style={[styles.viewBtn, { backgroundColor: colors.primary }]} onPress={() => onPress(job)}>
+              <Text style={[styles.viewBtnText, { color: colors.white, fontFamily: Fonts.heading }]}>View</Text>
+              <Ionicons name="arrow-forward" size={13} color={colors.white} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
+
+      {isProcessing && (
+        <View style={styles.processingOverlay} pointerEvents="none">
+          <View style={styles.processingCard}>
+            <Ionicons name="cloud-upload-outline" size={20} color="#FFF" />
+            <Text style={styles.processingText}>
+              {processingProgress === null
+                ? 'Processing video...'
+                : `Uploading video... ${Math.round(processingProgress * 100)}%`}
+            </Text>
+            {processingProgress !== null && (
+              <View style={styles.processingTrack}>
+                <View
+                  style={[styles.processingFill, { width: `${Math.round(processingProgress * 100)}%` }]}
+                />
+              </View>
+            )}
+          </View>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
+
+// Custom comparator: only the fields JobCard actually renders need to be
+// checked — comparing the whole `job` object by reference would defeat the
+// memo any time JobsContext produces a new array (which is every fetch),
+// even if this particular job's data didn't change.
+export default React.memo(JobCard, (prev, next) =>
+  prev.job.id === next.job.id &&
+  prev.applied === next.applied &&
+  prev.job.title === next.job.title &&
+  prev.job.pay === next.job.pay &&
+  prev.job.positions === next.job.positions &&
+  prev.job.timePosted === next.job.timePosted &&
+  prev.processingProgress === next.processingProgress
+);
 
 const styles = StyleSheet.create({
   card: {
@@ -108,6 +163,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.10, shadowRadius: 6, elevation: 4,
   },
+  cardProcessing: { opacity: 0.55 },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  processingCard: {
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    borderRadius: 10, paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    alignItems: 'center', gap: 6, maxWidth: '80%',
+  },
+  processingText: { color: '#FFF', fontSize: 12, fontFamily: Fonts.heading, textAlign: 'center' },
+  processingTrack: {
+    width: 120, height: 5, borderRadius: 3, overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  processingFill: { height: '100%', borderRadius: 3, backgroundColor: '#FFF' },
   appliedTag: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: 'rgba(0,0,0,0.35)',

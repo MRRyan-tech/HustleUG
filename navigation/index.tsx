@@ -3,7 +3,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -13,6 +13,7 @@ import PostJobScreen from '../screens/PostJobScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import JobDetailsScreen from '../screens/JobDetailsScreen';
 import AppliedJobsScreen from '../screens/AppliedJobsScreen';
+import ApplicantsScreen from '../screens/ApplicantsScreen';
 import SignInScreen from '../screens/SignInScreen';
 import SignUpScreen from '../screens/SignUpScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -32,6 +33,7 @@ export type RootStackParamList = {
   MainTabs: { screen?: keyof TabParamList };
   JobDetails: { jobId: string };
   AppliedJobs: undefined;
+  Applicants: { jobId: string; jobTitle?: string };
 };
 
 export type AuthStackParamList = {
@@ -95,6 +97,7 @@ function AppStack() {
       <Stack.Screen name="MainTabs"    component={MainTabs} />
       <Stack.Screen name="JobDetails"  component={JobDetailsScreen} />
       <Stack.Screen name="AppliedJobs" component={AppliedJobsScreen} />
+      <Stack.Screen name="Applicants"  component={ApplicantsScreen} />
     </Stack.Navigator>
   );
 }
@@ -117,6 +120,12 @@ export default function AppNavigation() {
     return (
       <View style={[styles.loadingWrap, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={[styles.loadingTitle, { color: colors.text }]}>
+          Getting everything ready for you
+        </Text>
+        <Text style={[styles.loadingSubtitle, { color: colors.mutedText }]}>
+          Hold tight, just a moment
+        </Text>
       </View>
     );
   }
@@ -160,5 +169,18 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 32,
+  },
+  loadingTitle: {
+    fontFamily: Fonts.heading,
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  loadingSubtitle: {
+    fontFamily: Fonts.body,
+    fontSize: 13,
+    textAlign: 'center',
   },
 });

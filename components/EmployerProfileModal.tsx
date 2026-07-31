@@ -2,8 +2,9 @@
 import React from 'react';
 import {
   View, Text, Modal, StyleSheet, TouchableOpacity,
-  ScrollView, Image, Linking, Alert,
+  ScrollView, Linking, Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useJobs } from '../context/JobsContext';
@@ -70,7 +71,13 @@ export default function EmployerProfileModal({
             {/* Avatar + name */}
             <View style={styles.profileSection}>
               {employerAvatarUri ? (
-                <Image source={{ uri: employerAvatarUri }} style={[styles.avatar, { borderColor: colors.primary }]} />
+                <Image
+                  source={{ uri: employerAvatarUri }}
+                  style={[styles.avatar, { borderColor: colors.primary }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
+                />
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.primary }]}>
                   <Text style={[styles.avatarInitial, { fontFamily: Fonts.heading }]}>

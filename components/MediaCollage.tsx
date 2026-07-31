@@ -2,8 +2,9 @@
 // Shows photos on left, videos on right in a collage grid
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Image,
+  View, Text, TouchableOpacity, StyleSheet,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { Fonts } from '../constants/fonts';
@@ -66,7 +67,9 @@ export default function MediaCollage({ media }: MediaCollageProps) {
                 <Image
                   source={{ uri: item.uri }}
                   style={styles.tileImage}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
                 />
                 <View style={styles.tileOverlay}>
                   <Ionicons name="expand-outline" size={16} color="#FFFFFF" />

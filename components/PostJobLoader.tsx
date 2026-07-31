@@ -1,5 +1,5 @@
 // components/PostJobLoader.tsx
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Modal, Animated, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -7,6 +7,8 @@ import { Fonts } from '../constants/fonts';
 
 interface PostJobLoaderProps {
   visible: boolean;
+  label?: string;
+  success?: boolean;
 }
 
 function BouncingBall({ delay, colors }: { delay: number; colors: any }) {
@@ -59,26 +61,14 @@ function BouncingBall({ delay, colors }: { delay: number; colors: any }) {
   );
 }
 
-export default function PostJobLoader({ visible }: PostJobLoaderProps) {
+export default function PostJobLoader({ visible, label, success = false }: PostJobLoaderProps) {
   const { colors } = useTheme();
-  const [showSuccess, setShowSuccess] = useState(false);
-
-  useEffect(() => {
-    if (visible) {
-      setShowSuccess(false);
-      // Bouncing balls for 3 seconds, then show success
-      const t = setTimeout(() => setShowSuccess(true), 3000);
-      return () => clearTimeout(t);
-    } else {
-      setShowSuccess(false);
-    }
-  }, [visible]);
 
   return (
     <Modal transparent visible={visible} animationType="fade">
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {!showSuccess ? (
+          {!success ? (
             <>
               <View style={styles.loaderWrapper}>
                 <BouncingBall delay={0} colors={colors} />
@@ -86,7 +76,7 @@ export default function PostJobLoader({ visible }: PostJobLoaderProps) {
                 <BouncingBall delay={300} colors={colors} />
               </View>
               <Text style={[styles.label, { color: colors.text, fontFamily: Fonts.heading }]}>
-                Posting your job...
+                {label ?? 'Posting your job...'}
               </Text>
               <Text style={[styles.sublabel, { color: colors.mutedText, fontFamily: Fonts.body }]}>
                 This won't take long

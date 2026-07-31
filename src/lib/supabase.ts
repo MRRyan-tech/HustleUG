@@ -1,12 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureSessionStorage } from './secureStorage';
 
 const SUPABASE_URL = 'https://mwpiavqwvqeygbhsxphg.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_WwzdAHdXjmFfai2OnhE8ZA_PQCsXBIU';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: AsyncStorage,
+    // Session (access + refresh token) is now encrypted at rest and
+    // backed by the OS Keychain/Keystore instead of plain AsyncStorage --
+    // see src/lib/secureStorage.ts for why a direct SecureStore swap
+    // wasn't viable (its per-key size limit).
+    storage: secureSessionStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
@@ -35,11 +39,14 @@ export type EmployerProfile = {
   profile_id: string;
   company_name: string;
   company_logo_url: string | null;
+  employer_type: 'individual' | 'business';
   industry: string | null;
   company_size: '1-10' | '11-50' | '51-200' | '201-500' | '500+' | null;
   website: string | null;
   description: string | null;
   verified: boolean;
+  tier: 'free' | 'paid';
+  tier_expires_at: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -2,8 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, Image, Alert, ActivityIndicator,
+  TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -187,7 +188,13 @@ export default function AppliedJobsScreen() {
                   <View style={[styles.employerRow, { borderTopColor: colors.border }]}>
                     <View style={[styles.employerAvatar, { backgroundColor: colors.primary }]}>
                       {job.employerAvatarUri ? (
-                        <Image source={{ uri: job.employerAvatarUri }} style={styles.employerImg} />
+                        <Image
+                          source={{ uri: job.employerAvatarUri }}
+                          style={styles.employerImg}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={150}
+                        />
                       ) : (
                         <Text style={[styles.employerInitial, { fontFamily: Fonts.heading }]}>
                           {job.employerName.charAt(0)}

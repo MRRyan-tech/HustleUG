@@ -18,7 +18,7 @@ function AppInner() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? 'light' : 'dark'} translucent backgroundColor="transparent" />
       <AppNavigation />
       {showLoader && (
         <AppLoadingScreen onFinish={() => setShowLoader(false)} />
