@@ -10,7 +10,13 @@ import { Fonts } from '../constants/fonts';
 interface JobCardProps {
   job: Job;
   onPress: (job: Job) => void;
-  applied?: boolean;
+  /**
+   * Undefined/omitted = seeker hasn't applied. Otherwise reflects the
+   * real application status so the feed itself shows outcome, not just
+   * "you applied at some point" -- a rejected application used to look
+   * identical to a still-pending one here.
+   */
+  appliedStatus?: 'pending' | 'accepted' | 'rejected';
   /**
    * When set, this card renders dimmed with a "processing" overlay instead
    * of behaving as a normal interactive card — used for a job whose video
@@ -40,9 +46,17 @@ function formatPay(amount: number): string {
 // Memoized so FlatList doesn't re-render every visible card just because
 // the parent re-rendered (e.g. typing in the search box) — only cards
 // whose job data or applied status actually changed will re-render.
-function JobCard({ job, onPress, applied = false, processingProgress }: JobCardProps) {
+function JobCard({ job, onPress, appliedStatus, processingProgress }: JobCardProps) {
   const { colors } = useTheme();
   const isProcessing = processingProgress !== undefined;
+
+  const tagConfig = appliedStatus === 'accepted'
+    ? { icon: 'checkmark-circle' as const, label: 'Accepted', style: styles.appliedTagAccepted }
+    : appliedStatus === 'rejected'
+    ? { icon: 'close-circle' as const, label: 'Rejected', style: styles.appliedTagRejected }
+    : appliedStatus === 'pending'
+    ? { icon: 'checkmark-circle' as const, label: 'Applied', style: styles.appliedTag }
+    : null;
 
   return (
     <TouchableOpacity
@@ -62,10 +76,10 @@ function JobCard({ job, onPress, applied = false, processingProgress }: JobCardP
           <Text style={[styles.categoryText, { color: colors.primaryDark, fontFamily: Fonts.heading }]}>{job.category}</Text>
         </View>
 
-        {applied && (
-          <View style={styles.appliedTag}>
-            <Ionicons name="checkmark-circle" size={11} color="#FFF" />
-            <Text style={styles.appliedTagText}>Applied</Text>
+        {tagConfig && (
+          <View style={[styles.appliedTagBase, tagConfig.style]}>
+            <Ionicons name={tagConfig.icon} size={11} color="#FFF" />
+            <Text style={styles.appliedTagText}>{tagConfig.label}</Text>
           </View>
         )}
 
@@ -148,7 +162,7 @@ function JobCard({ job, onPress, applied = false, processingProgress }: JobCardP
 // even if this particular job's data didn't change.
 export default React.memo(JobCard, (prev, next) =>
   prev.job.id === next.job.id &&
-  prev.applied === next.applied &&
+  prev.appliedStatus === next.appliedStatus &&
   prev.job.title === next.job.title &&
   prev.job.pay === next.job.pay &&
   prev.job.positions === next.job.positions &&
@@ -180,12 +194,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.25)',
   },
   processingFill: { height: '100%', borderRadius: 3, backgroundColor: '#FFF' },
-  appliedTag: {
+  appliedTagBase: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: 'rgba(0,0,0,0.35)',
     paddingHorizontal: 8, paddingVertical: 4,
     borderRadius: 20, borderWidth: 1, borderColor: '#FFF',
   },
+  appliedTag: { backgroundColor: 'rgba(0,0,0,0.35)' },
+  appliedTagAccepted: { backgroundColor: 'rgba(16,124,16,0.85)' },
+  appliedTagRejected: { backgroundColor: 'rgba(180,40,40,0.85)' },
   appliedTagText: { color: '#FFF', fontSize: 10, fontFamily: Fonts.heading, letterSpacing: 0.5 },
   mediaStrip: { height: 76, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.md },
   categoryPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.sm, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5 },

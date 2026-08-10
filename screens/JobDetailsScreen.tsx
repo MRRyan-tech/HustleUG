@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  Alert, Linking, TouchableOpacity, ActivityIndicator,
+  Linking, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
+import { CrossAlert as Alert } from '../src/lib/crossAlert';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';

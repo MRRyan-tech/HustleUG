@@ -6,7 +6,7 @@ import {
   createVideoUploadTicket, getVideoPlaybackUrl, getVideoThumbnailUrl,
   UploadedMedia, VideoUploadTicket,
 } from '../src/lib/mediaUpload';
-import { Job, Category, Applicant } from '../types';
+import { Job, Category, Applicant, RecentApplicant } from '../types';
 import { MediaItem } from '../components/MediaPicker';
 import { useUser } from './UserContext';
 import { playJobPostedSound } from '../src/lib/sounds';
@@ -44,6 +44,7 @@ interface JobsContextType {
   ) => Promise<{ error: string | null; jobId?: string; videoTicket?: VideoUploadTicket; videoUri?: string }>;
   cancelJob: (jobId: string) => Promise<{ error: string | null }>;
   fetchApplicants: (jobId: string) => Promise<{ data: Applicant[]; error: string | null }>;
+  fetchRecentApplicants: (employerId: string, limit?: number) => Promise<{ data: RecentApplicant[]; error: string | null }>;
   acceptApplicant: (applicationId: string) => Promise<{ error: string | null }>;
   rejectApplicant: (applicationId: string) => Promise<{ error: string | null }>;
   // Tracks in-flight video uploads by job id (0–1 fraction). Lives here
@@ -67,6 +68,7 @@ const JobsContext = createContext<JobsContextType>({
   addJob: async () => ({ error: 'Not ready', jobId: undefined, videoTicket: undefined, videoUri: undefined }),
   cancelJob: async () => ({ error: 'Not ready' }),
   fetchApplicants: async () => ({ data: [], error: 'Not ready' }),
+  fetchRecentApplicants: async () => ({ data: [], error: 'Not ready' }),
   acceptApplicant: async () => ({ error: 'Not ready' }),
   rejectApplicant: async () => ({ error: 'Not ready' }),
   videoUploadProgress: {},
@@ -580,6 +582,45 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     return { data: (data ?? []).map(mapRowToApplicant), error: null };
   };
 
+  // Powers the "Recent Applicants" card on Home -- unlike fetchApplicants
+  // (scoped to one job the caller already knows the title of), this spans
+  // every job the employer owns at once, so it needs jobs!inner to both
+  // filter by employer_id (applications has no employer_id column of its
+  // own) and pull back each job's title for display. Only 'pending'
+  // applicants are returned -- accepted/rejected ones are already
+  // resolved and don't need the employer's attention, so surfacing them
+  // here would just be noise in a glanceable card meant to prompt action.
+  const fetchRecentApplicants = async (
+    employerId: string,
+    limit = 5
+  ): Promise<{ data: RecentApplicant[]; error: string | null }> => {
+    const { data, error } = await supabase
+      .from('applications')
+      .select(`
+        *,
+        jobs!inner ( title, employer_id ),
+        seeker_profiles (
+          headline, skills, experience_level,
+          profiles ( full_name, avatar_url, phone )
+        )
+      `)
+      .eq('jobs.employer_id', employerId)
+      .eq('status', 'pending')
+      .order('applied_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      return { data: [], error: error.message };
+    }
+
+    const mapped = (data ?? []).map((row: any) => ({
+      ...mapRowToApplicant(row),
+      jobTitle: row.jobs?.title ?? 'Untitled job',
+    }));
+
+    return { data: mapped, error: null };
+  };
+
   // Accept + decrement positions_available happen together via a single
   // Postgres function so two near-simultaneous accepts on the same job
   // can't both succeed past the remaining slot count. See the
@@ -618,7 +659,7 @@ export function JobsProvider({ children }: { children: React.ReactNode }) {
     <JobsContext.Provider value={{
       jobs, loading, loadingMore, hasMore, refreshJobs, loadMoreJobs,
       fetchJobById, fetchJobsByEmployer, addJob, cancelJob,
-      fetchApplicants, acceptApplicant, rejectApplicant,
+      fetchApplicants, fetchRecentApplicants, acceptApplicant, rejectApplicant,
       videoUploadProgress, uploadPendingVideo,
     }}>
       {children}

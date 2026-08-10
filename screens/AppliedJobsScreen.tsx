@@ -2,8 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, Alert, ActivityIndicator,
+  TouchableOpacity, ActivityIndicator,
 } from 'react-native';
+import { CrossAlert as Alert } from '../src/lib/crossAlert';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -128,8 +129,14 @@ export default function AppliedJobsScreen() {
         ) : (
           appliedList.map((job) => {
             const status = appliedJobs[job.id];
-            const isAccepted = status === 'accepted';
             const isWithdrawing = withdrawingId === job.id;
+
+            const statusConfig = status === 'accepted'
+              ? { label: 'Accepted', icon: 'checkmark-circle' as const, color: colors.primary }
+              : status === 'rejected'
+              ? { label: 'Rejected', icon: 'close-circle' as const, color: colors.danger }
+              : { label: 'Pending', icon: 'time-outline' as const, color: colors.mutedText };
+            const isNeutral = status !== 'accepted' && status !== 'rejected';
 
             return (
               <TouchableOpacity
@@ -138,7 +145,7 @@ export default function AppliedJobsScreen() {
                 onPress={() => navigation.navigate('JobDetails', { jobId: job.id })}
                 activeOpacity={0.88}
               >
-                <View style={[styles.stripe, { backgroundColor: isAccepted ? colors.primary : colors.border }]} />
+                <View style={[styles.stripe, { backgroundColor: isNeutral ? colors.border : statusConfig.color }]} />
 
                 <View style={styles.cardBody}>
                   <View style={styles.cardTop}>
@@ -168,19 +175,19 @@ export default function AppliedJobsScreen() {
 
                     <View style={[
                       styles.statusBadge,
-                      { backgroundColor: isAccepted ? colors.primary : colors.card,
-                        borderColor: isAccepted ? colors.primary : colors.mutedText },
+                      { backgroundColor: isNeutral ? colors.card : statusConfig.color,
+                        borderColor: isNeutral ? colors.mutedText : statusConfig.color },
                     ]}>
                       <Ionicons
-                        name={isAccepted ? 'checkmark-circle' : 'time-outline'}
+                        name={statusConfig.icon}
                         size={13}
-                        color={isAccepted ? colors.white : colors.mutedText}
+                        color={isNeutral ? colors.mutedText : colors.white}
                       />
                       <Text style={[
                         styles.statusText,
-                        { color: isAccepted ? colors.white : colors.mutedText, fontFamily: Fonts.heading },
+                        { color: isNeutral ? colors.mutedText : colors.white, fontFamily: Fonts.heading },
                       ]}>
-                        {isAccepted ? 'Accepted' : 'Pending'}
+                        {statusConfig.label}
                       </Text>
                     </View>
                   </View>
@@ -207,7 +214,7 @@ export default function AppliedJobsScreen() {
                     <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
                   </View>
 
-                  {!isAccepted && (
+                  {status === 'pending' && (
                     <TouchableOpacity
                       style={[styles.withdrawBtn, { borderColor: colors.border }]}
                       onPress={() => handleWithdraw(job.id, job.title)}

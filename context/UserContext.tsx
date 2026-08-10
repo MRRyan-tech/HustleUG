@@ -2,9 +2,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, Profile, SeekerProfile, EmployerProfile, Application, UserRole } from '../src/lib/supabase';
-import { playJobConfirmedSound } from '../src/lib/sounds';
+import { playJobConfirmedSound, playRejectedSound } from '../src/lib/sounds';
 
-type AppliedStatus = 'pending' | 'accepted';
+type AppliedStatus = 'pending' | 'accepted' | 'rejected';
 
 interface UserContextType {
   session: Session | null;
@@ -237,13 +237,29 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         (payload) => {
           const newRow = payload.new as { seeker_id?: string; status?: string } | undefined;
           const oldRow = payload.old as { status?: string } | undefined;
-          const justGotHired =
-            newRow?.status === 'hired' &&
-            oldRow?.status !== 'hired' &&
-            newRow.seeker_id === seekerProfile?.id;
+
+          if (newRow?.seeker_id !== seekerProfile?.id) return;
+
+          const justGotHired = newRow?.status === 'hired' && oldRow?.status !== 'hired';
+          const justGotRejected = newRow?.status === 'rejected' && oldRow?.status !== 'rejected';
 
           if (justGotHired) {
             playJobConfirmedSound();
+          } else if (justGotRejected) {
+            playRejectedSound();
+          }
+
+          if (justGotHired || justGotRejected) {
+            // This was the actual bug: previously this handler only
+            // played a sound and never touched `applications` state, so
+            // the sound fired correctly but the badge count, AppliedJobs
+            // screen, and JobCard "Applied" tag all stayed on stale data
+            // until the user manually pulled to refresh (which calls
+            // fetchApplications and only then recomputes everything
+            // derived from it). Calling it here closes that gap --
+            // the moment the transition is detected, state actually
+            // updates too, not just the chime.
+            fetchApplications(seekerProfile!.id);
           }
         }
       )
@@ -256,7 +272,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   const appliedJobs: Record<string, AppliedStatus> = {};
   applications.forEach((app) => {
-    appliedJobs[app.job_id] = app.status === 'hired' ? 'accepted' : 'pending';
+    // Previously collapsed everything that wasn't 'hired' into 'pending'
+    // -- silently swallowing 'rejected' into the same bucket as a
+    // genuinely still-pending application. A rejected applicant looked
+    // identical to a pending one everywhere this was used (JobCard's
+    // "Applied" tag, AppliedJobsScreen), which is exactly the bug
+    // reported: rejection never visibly surfaced to the seeker at all.
+    if (app.status === 'hired') appliedJobs[app.job_id] = 'accepted';
+    else if (app.status === 'rejected') appliedJobs[app.job_id] = 'rejected';
+    else appliedJobs[app.job_id] = 'pending';
   });
 
   const hiredCount    = applications.filter((a) => a.status === 'hired').length;

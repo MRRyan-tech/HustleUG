@@ -2,8 +2,9 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Modal, Switch, Alert, ActivityIndicator, RefreshControl,
+  Modal, Switch, ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { CrossAlert as Alert } from '../src/lib/crossAlert';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';

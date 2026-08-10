@@ -55,3 +55,11 @@ export interface Applicant {
   skills: string[];
   experienceLevel: string | null;
 }
+
+// Same shape as Applicant, plus which job it's for -- fetchApplicants is
+// scoped to one job (the caller already knows the title), but the Home
+// screen's "Recent Applicants" card spans all of an employer's jobs at
+// once, so it needs that title attached per-row.
+export interface RecentApplicant extends Applicant {
+  jobTitle: string;
+}

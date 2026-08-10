@@ -103,7 +103,7 @@ export default function FindWorkScreen() {
     <View style={styles.listPadding}>
       <JobCard
         job={item}
-        applied={!!appliedJobs[item.id]}
+        appliedStatus={appliedJobs[item.id]}
         onPress={handleJobPress}
         processingProgress={draftJobIds.has(item.id) ? (videoUploadProgress[item.id] ?? null) : undefined}
       />

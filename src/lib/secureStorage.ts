@@ -17,6 +17,7 @@
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { Buffer } from 'buffer';
 import aesjs from 'aes-js';
 
@@ -75,7 +76,24 @@ async function decrypt(storageKey: string, packed: string): Promise<string | nul
 
 // Matches the storage interface Supabase's `createClient({ auth: { storage } })`
 // expects (get/set/removeItem, all async).
-export const secureSessionStorage = {
+//
+// Web is handled as a separate, simpler path entirely -- expo-secure-store
+// wraps the iOS Keychain / Android Keystore, both OS-level concepts that
+// don't exist in a browser at all, so calling it there was never going to
+// work. In practice it left sign-in stuck indefinitely on "Verifying..."
+// on the web build, since the storage write Supabase makes right after a
+// successful verifyOtp() never resolved. There's no hardware-backed
+// secure enclave to protect on web in the first place, so falling back to
+// plain AsyncStorage there isn't a security downgrade from some better
+// alternative -- it's the same place every other web app's session
+// already lives (AsyncStorage itself shims to localStorage on web).
+const webStorage = {
+  getItem: (key: string) => AsyncStorage.getItem(key),
+  setItem: (key: string, value: string) => AsyncStorage.setItem(key, value),
+  removeItem: (key: string) => AsyncStorage.removeItem(key),
+};
+
+const nativeSecureStorage = {
   async getItem(key: string): Promise<string | null> {
     const packed = await AsyncStorage.getItem(key);
     if (!packed) return null;
@@ -100,3 +118,5 @@ export const secureSessionStorage = {
     await SecureStore.deleteItemAsync(ENCRYPTION_KEY_PREFIX + key);
   },
 };
+
+export const secureSessionStorage = Platform.OS === 'web' ? webStorage : nativeSecureStorage;

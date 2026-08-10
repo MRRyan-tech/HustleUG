@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, Image, Alert, Animated, TextInput, Keyboard,
+  TouchableOpacity, Image, Animated, TextInput, Keyboard,
 } from 'react-native';
+import { CrossAlert as Alert } from '../src/lib/crossAlert';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import ScreenContainer from '../components/ScreenContainer';

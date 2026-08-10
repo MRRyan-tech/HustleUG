@@ -18,7 +18,7 @@ import { categories } from '../data/mockJobs';
 import { useJobs } from '../context/JobsContext';
 import { useTheme } from '../context/ThemeContext';
 import { useUser } from '../context/UserContext';
-import { Job, Category } from '../types';
+import { Job, Category, RecentApplicant } from '../types';
 import Spacing from '../constants/spacing';
 import { Fonts } from '../constants/fonts';
 import { RootStackParamList } from '../navigation';
@@ -32,11 +32,22 @@ function getGreeting(): string {
   return 'Good evening 👋';
 }
 
+function timeAgo(dateString: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 export default function HomeScreen() {
   const navigation = useNavigation<NavProp>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { jobs, refreshJobs, loadMoreJobs, hasMore, loadingMore, fetchJobsByEmployer, videoUploadProgress } = useJobs();
+  const { jobs, refreshJobs, loadMoreJobs, hasMore, loadingMore, fetchJobsByEmployer, fetchRecentApplicants, videoUploadProgress } = useJobs();
   const { profile, employerProfile, acceptedCount, appliedJobs, refreshProfile } = useUser();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category>('All');
@@ -69,6 +80,30 @@ export default function HomeScreen() {
     const { data } = await fetchJobsByEmployer(employerProfile.id);
     setMyProcessingJobs(data.filter((j) => j.videoStatus === 'processing'));
   }, [employerProfile, fetchJobsByEmployer]);
+
+  // "Recent Applicants" card, employer-only -- deliberately a glanceable
+  // summary refreshed on focus (same pattern as loadMyProcessingJobs
+  // above), not a live realtime feed. The instant, no-refresh-needed
+  // freshness for a new applicant is already covered by the sound +
+  // badge (see UserContext) -- this card's job is to be the thing an
+  // employer's eyes land on immediately when they open Home, not to
+  // duplicate that notification mechanism.
+  const [recentApplicants, setRecentApplicants] = useState<RecentApplicant[]>([]);
+
+  const loadRecentApplicants = useCallback(async () => {
+    if (!employerProfile) {
+      setRecentApplicants([]);
+      return;
+    }
+    const { data } = await fetchRecentApplicants(employerProfile.id, 5);
+    setRecentApplicants(data);
+  }, [employerProfile, fetchRecentApplicants]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadRecentApplicants();
+    }, [loadRecentApplicants])
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -105,6 +140,11 @@ export default function HomeScreen() {
   const initial   = firstName.charAt(0).toUpperCase();
   const avatarUrl = profile?.avatar_url ?? null;
   const isSeeker  = profile?.role === 'seeker';
+  // Presence-based, not tied to activeRole -- an employer should see
+  // this regardless of which hat they're currently switched to, so it
+  // reads as an ambient "you have applicants" signal rather than
+  // something you have to remember to go check by switching hats first.
+  const isEmployer = !!employerProfile;
 
   const handleJobPress = useCallback((job: Job) => {
     navigation.navigate('JobDetails', { jobId: job.id });
@@ -114,7 +154,7 @@ export default function HomeScreen() {
     <View style={styles.listPadding}>
       <JobCard
         job={item}
-        applied={!!appliedJobs[item.id]}
+        appliedStatus={appliedJobs[item.id]}
         onPress={handleJobPress}
         processingProgress={draftJobIds.has(item.id) ? (videoUploadProgress[item.id] ?? null) : undefined}
       />
@@ -188,6 +228,53 @@ export default function HomeScreen() {
 
   const listHeader = (
     <>
+      {/* ── Recent Applicants (employers only) ── */}
+      {isEmployer && recentApplicants.length > 0 && (
+        <View style={[styles.applicantsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.applicantsCardHeader}>
+            <Text style={[styles.applicantsCardTitle, { color: colors.text, fontFamily: Fonts.heading }]}>
+              Recent Applicants
+            </Text>
+            <View style={[styles.applicantsCountPill, { backgroundColor: colors.primary }]}>
+              <Text style={styles.applicantsCountText}>{recentApplicants.length}</Text>
+            </View>
+          </View>
+
+          {recentApplicants.map((applicant) => (
+            <TouchableOpacity
+              key={applicant.applicationId}
+              style={[styles.applicantRow, { borderTopColor: colors.border }]}
+              onPress={() => navigation.navigate('Applicants', { jobId: applicant.jobId, jobTitle: applicant.jobTitle })}
+              activeOpacity={0.7}
+            >
+              {applicant.avatarUrl ? (
+                <Image
+                  source={{ uri: applicant.avatarUrl }}
+                  style={styles.applicantAvatar}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+              ) : (
+                <View style={[styles.applicantAvatar, styles.applicantAvatarPlaceholder, { backgroundColor: colors.primaryLight }]}>
+                  <Text style={[styles.applicantInitial, { color: colors.primary, fontFamily: Fonts.heading }]}>
+                    {applicant.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.applicantTexts}>
+                <Text style={[styles.applicantName, { color: colors.text, fontFamily: Fonts.heading }]} numberOfLines={1}>
+                  {applicant.name}
+                </Text>
+                <Text style={[styles.applicantMeta, { color: colors.mutedText, fontFamily: Fonts.body }]} numberOfLines={1}>
+                  Applied for {applicant.jobTitle} · {timeAgo(applicant.appliedAt)}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.mutedText} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {/* ── Search ── */}
       <View style={[styles.searchWrapper, { borderColor: colors.border, backgroundColor: colors.card }]}>
         <View style={[styles.searchIconBox, { backgroundColor: colors.primary }]}>
@@ -336,6 +423,28 @@ const styles = StyleSheet.create({
   avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: 2.5, overflow: 'hidden' },
   avatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   avatarInitial: { fontSize: 20 },
+  applicantsCard: {
+    marginHorizontal: Spacing.md, marginTop: Spacing.md,
+    borderRadius: 12, borderWidth: 1.5, overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
+  },
+  applicantsCardHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.sm,
+  },
+  applicantsCardTitle: { fontSize: 15 },
+  applicantsCountPill: { minWidth: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  applicantsCountText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  applicantRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm, borderTopWidth: 1,
+  },
+  applicantAvatar: { width: 40, height: 40, borderRadius: 20 },
+  applicantAvatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  applicantInitial: { fontSize: 16 },
+  applicantTexts: { flex: 1, gap: 2 },
+  applicantName: { fontSize: 14 },
+  applicantMeta: { fontSize: 12 },
   searchWrapper: {
     flexDirection: 'row', alignItems: 'center',
     marginHorizontal: Spacing.md, marginTop: Spacing.md, marginBottom: Spacing.md,

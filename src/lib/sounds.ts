@@ -19,6 +19,7 @@ import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 // before each play avoids that entirely for a sound this short.
 let jobPostedPlayer: AudioPlayer | null = null;
 let jobConfirmedPlayer: AudioPlayer | null = null;
+let rejectedPlayer: AudioPlayer | null = null;
 
 function getJobPostedPlayer(): AudioPlayer {
   if (!jobPostedPlayer) {
@@ -32,6 +33,13 @@ function getJobConfirmedPlayer(): AudioPlayer {
     jobConfirmedPlayer = createAudioPlayer(require('../../assets/sounds/job_confirmed.mp3'));
   }
   return jobConfirmedPlayer;
+}
+
+function getRejectedPlayer(): AudioPlayer {
+  if (!rejectedPlayer) {
+    rejectedPlayer = createAudioPlayer(require('../../assets/sounds/rejected.mp3'));
+  }
+  return rejectedPlayer;
 }
 
 // Plays when a posted job actually goes live in the feed -- for a
@@ -66,5 +74,18 @@ export async function playJobConfirmedSound() {
     player.play();
   } catch (err) {
     console.warn('playJobConfirmedSound failed:', err);
+  }
+}
+
+// Fires for a seeker the instant their application is marked 'rejected'
+// -- the counterpart to playJobConfirmedSound's 'hired' case, same
+// realtime trigger point, opposite outcome.
+export async function playRejectedSound() {
+  try {
+    const player = getRejectedPlayer();
+    await player.seekTo(0);
+    player.play();
+  } catch (err) {
+    console.warn('playRejectedSound failed:', err);
   }
 }
